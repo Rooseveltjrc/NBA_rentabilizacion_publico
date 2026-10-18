@@ -1,0 +1,8 @@
+__pycache__/
+.pytest_cache/
+salida*/
+data/
+*.parquet
+!config/
+data_dummy/*
+!data_dummy/README.md

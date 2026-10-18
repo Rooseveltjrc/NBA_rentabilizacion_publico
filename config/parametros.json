@@ -1,0 +1,35 @@
+{
+  "_comentario": "Parámetros del NBA. Las claves que se omitan toman su valor por defecto.",
+  "umbral_no_contacto": 0.0,
+  "excluir_compradores": true,
+  "control_adicional_al_minimo": true,
+  "detener_si_error_calidad": true,
+  "holgura_riesgo": 1.2,
+  "calidad": {
+    "max_nulos_error": 0.05,
+    "max_nulos_advertencia": 0.0,
+    "min_cobertura_analitica": 0.95,
+    "min_cobertura_resultados": 0.98,
+    "min_desviacion_score": 0.001,
+    "max_inconsistencia_embudo": 0.01
+  },
+  "scoring": {
+    "k_credibilidad": 200,
+    "min_compras": 30,
+    "min_contactados": 300,
+    "c_regularizacion": 1.0,
+    "seed": 0
+  },
+  "experimento": {
+    "brazos": {"tratamiento": 0.9, "control": 0.1},
+    "modo": "potencia",
+    "mde_relativo": 0.15,
+    "alpha": 0.05,
+    "potencia": 0.80,
+    "min_control": 500,
+    "max_pct_control": 0.30,
+    "n_deciles": 10,
+    "estratos_extra": [],
+    "seed": 42
+  }
+}
