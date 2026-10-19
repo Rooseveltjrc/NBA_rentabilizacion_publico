@@ -6,7 +6,9 @@ y grupos de control para medir el impacto incremental.
 
 ```
 [1] Calidad ─► [2] Scores ponderados + ajuste con resultados ─► [3] Estrategia
-    ─► [4] Optimización ─► [5] Diseño experimental ─► [6] Salidas
+    ─► [4] Optimización ─► [5] Diseño experimental ─► Salidas
+                                                        │ campaña ejecutada
+[6] Medición (ventas, clicks, gestión, programación) ◄──┘ ─► reporte + vuelve a [2]
 ```
 
 ## Entradas
@@ -25,6 +27,8 @@ python run_nba.py --config config/parametros.json --clientes clientes.parquet --
     --estrategia estrategia.csv --resultados resultados.parquet --pesos pesos.csv --salida salida/
 python run_nba.py --demo 3000000 --campanas 15      # escenario sintético
 python generar_dummy.py                              # set de prueba en CSV: data_dummy/
+python run_medicion.py --programacion programacion.csv --gestion gestion.csv \
+    --ventas ventas.csv --asignacion salida/asignacion_nba.parquet --salida medicion/
 python -m pytest -q tests
 ```
 
@@ -73,6 +77,25 @@ imponer el mínimo de esa campaña: es un insumo directo para negociar la estrat
   asignación proporcional o de Neyman.
 - `medir_lift`: con resultados que traen `grupo`, calcula el lift absoluto y relativo, IC 95%, p-valor y
   ventas incrementales. Cierra el ciclo con el paso 2.
+
+**6. Medición (`nba/medicion.py`, `nba/reporte_medicion.py`)**: mide la ola ya ejecutada.
+
+| Insumo | Columnas |
+|---|---|
+| `programacion` | `campana`, `canal`, `fecha_inicio`, `fecha_fin`, `clientes_programados` [, `costo_unitario`] |
+| `gestion` | `id_cliente`, `campana`, `canal`, `fecha`, `evento`. Eventos: `envio`, `entrega`, `apertura`, `click`, `llamada`, `contacto`, `no_contesta`, `no_llamar` |
+| `ventas` | `id_cliente`, `producto`, `fecha_venta` [, `monto`, `canal_venta`] |
+| `asignacion` (opcional) | salida del NBA con `grupo`: habilita el lift frente al control y el ROI |
+
+- **Cumplimiento:** clientes programados frente a gestionados por campaña y canal, y % de gestiones dentro de la ventana.
+- **Embudo:** entrega, apertura, CTR (click/entrega), CTOR (click/apertura), contactabilidad y % que pidió no llamar.
+- **Atribución:** una venta del producto cuenta para la campaña si ocurre entre el primer toque y
+  `fecha_fin + ventana` (30 días por defecto). El canal es el último toque de mayor intención antes
+  de la venta: click o contacto, luego apertura o entrega, luego envío o llamada. El resto se clasifica como orgánica.
+- **Impacto:** lift de conversión e ingresos incrementales frente al control (IC 95%) y ROI si hay `costo_unitario`.
+- **Reporte:** `reporte_medicion.html` es autocontenido (se abre en el navegador o con `displayHTML` en Databricks).
+  Trae hallazgos automáticos y gráficos con tooltip y tabla de datos: cumplimiento, embudo, ventas
+  por día, canal, lift y tiempo a conversión.
 
 ## Salidas (`salida/`)
 

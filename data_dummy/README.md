@@ -42,5 +42,18 @@ ADVERTENCIA, no como ERROR.
 | `resultados_ronda_2.csv` | Resultados de ejecutar la asignación, con la columna `grupo`. El control no se contacta y compra de forma orgánica |
 | `lift_por_campana.csv` | Lift medido (IC 95%, p-valor, ventas incrementales) junto al `lift_real_simulado` |
 
+## medicion/ (M6: la ola ejecutada, con fechas)
+
+| Archivo | Contenido |
+|---|---|
+| `programacion.csv` | 12 filas: cada campaña con su canal digital (email o sms) y llamada, ventanas de 14 días escalonadas desde el 02/11/2026 |
+| `gestion.csv` | ~111 mil eventos (envío, entrega, apertura, click, llamada, contacto…) con fecha y hora |
+| `ventas.csv` | ~9 mil ventas con fecha, monto y canal de venta |
+| `cumplimiento.csv`, `embudo.csv`, `atribucion_canal.csv`, `serie_diaria.csv`, `lift.csv`, `roi.csv` | tablas del análisis |
+| `reporte_medicion.html` | reporte visual: ábrelo en el navegador |
+
+Sembrado a propósito: `credito_consumo` (sms) se ejecuta al 86% y `credito_vehiculo` (email) tiene 3%
+de envíos fuera de ventana. Ambos deben aparecer en "Lo que hay que mirar primero".
+
 En una operación real, `resultados_ronda_2.csv` vuelve como `resultados.csv` en la siguiente
 corrida y cierra el ciclo.

@@ -235,6 +235,8 @@ def medir_lift(resultados: pd.DataFrame, alpha=0.05, ref="control"):
     filas = []
     for c, g in r.groupby("campana"):
         ctrl = g[g.grupo == ref].compra
+        if ctrl.empty:                      # sin control no hay contra qué comparar
+            continue
         for brazo, t in g[g.grupo != ref].groupby("grupo"):
             t = t.compra
             p1, p0, n1, n0 = t.mean(), ctrl.mean(), len(t), len(ctrl)

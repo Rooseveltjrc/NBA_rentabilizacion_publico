@@ -7,6 +7,7 @@ Estructura generada:
   data_dummy/entradas/      las 5 tablas de entrada en CSV
   data_dummy/salidas/       todo lo que produce el pipeline (+ asignacion_nba.csv)
   data_dummy/ronda_2/       resultados simulados de la campaña ejecutada y su lift
+  data_dummy/medicion/      insumos de M6 (programación, gestión, ventas) y reporte_medicion.html
 """
 import argparse
 from pathlib import Path
@@ -16,6 +17,8 @@ import pandas as pd
 
 from nba.data import FLAGS_RESULTADO, ID, generar_escenario_completo
 from nba.experimentacion import medir_lift
+from nba.medicion import medir
+from nba.reporte_medicion import generar_html
 from nba.pipeline import ConfigNBA, ejecutar
 
 NOMBRES = ["tarjeta_credito", "credito_consumo", "seguro_vida", "cdt_inversion",
@@ -71,6 +74,70 @@ def simular_ronda_2(asig: pd.DataFrame, rng) -> pd.DataFrame:
     return r, pd.DataFrame({"campana": camps, "lift_real_simulado": [lift_real[c] for c in camps]})
 
 
+TICKET = {"tarjeta_credito": 180_000, "credito_consumo": 450_000, "seguro_vida": 120_000,
+          "cdt_inversion": 250_000, "cuenta_nomina": 90_000, "credito_vehiculo": 900_000,
+          "seguro_hogar": 110_000, "credito_libranza": 380_000}
+COSTO = {"email": 60, "sms": 140, "llamada": 2_800}
+
+
+def simular_insumos_medicion(asig: pd.DataFrame, res2: pd.DataFrame, rng, inicio="2026-11-02", dur=14):
+    """Programación, eventos de gestión con fecha y ventas a partir de la ronda 2 simulada.
+    Incluye a propósito una campaña con ejecución incompleta y gestiones fuera de ventana."""
+    H = pd.Timedelta(hours=1)
+    camps = list(dict.fromkeys(asig.campana_nba.dropna()))
+    camps.sort()
+    prog, ev, ven = [], [], []
+    for k, c in enumerate(camps):
+        ini = pd.Timestamp(inicio) + pd.Timedelta(days=3 * k)
+        fin = ini + pd.Timedelta(days=dur - 1)
+        digital = "email" if k % 2 == 0 else "sms"
+        r = res2[res2.campana == c].reset_index(drop=True)
+        trat = (r.grupo != "control").to_numpy()
+        m = len(r)
+        u = lambda a, b: pd.Series(pd.to_timedelta(rng.uniform(a, b, m), unit="D"))
+        td = lambda x, unit: pd.Series(pd.to_timedelta(x, unit=unit))
+        ids = r[ID].to_numpy()
+        envio = trat & (rng.random(m) < (0.84 if k == 1 else 0.995))      # una campaña se queda corta
+        t_env = ini + u(0, dur * 0.5)
+        fuera = envio & (rng.random(m) < (0.03 if k == 2 else 0.0))        # envíos antes de la ventana
+        t_env = t_env.where(~fuera, ini - pd.Timedelta(days=2))
+        entrega = envio & (r.recibio_mensaje == 1).to_numpy()
+        apertura = entrega & (r.abrio_comunicacion == 1).to_numpy()
+        t_ape = t_env + td(rng.exponential(18, m), "h")
+        comp_d = (r.compro == 1).to_numpy()
+        click = apertura & (comp_d | (rng.random(m) < 0.30))
+        t_clk = t_ape + td(rng.exponential(2, m), "h")
+        llam = (r.gestion_llamada == 1).to_numpy()
+        t_ll = ini + u(2, dur)
+        contacto = llam & (r.no_contesto_llamada == 0).to_numpy()
+        for mask, t, e, ch in ((envio, t_env, "envio", digital), (entrega, t_env + 0.1 * H, "entrega", digital),
+                               (apertura, t_ape, "apertura", digital), (click, t_clk, "click", digital),
+                               (llam, t_ll, "llamada", "llamada"), (contacto, t_ll + 0.05 * H, "contacto", "llamada"),
+                               (llam & ~contacto, t_ll + 0.05 * H, "no_contesta", "llamada"),
+                               ((r.contesto_no_llamar == 1).to_numpy(), t_ll + 0.1 * H, "no_llamar", "llamada")):
+            ev.append(pd.DataFrame({ID: ids[mask], "campana": c, "canal": ch, "fecha": t[mask].to_numpy(), "evento": e}))
+        n_dig, n_ll = int(trat.sum()), int(llam.sum())
+        prog += [dict(campana=c, canal=digital, fecha_inicio=ini.date(), fecha_fin=fin.date(),
+                      clientes_programados=n_dig, costo_unitario=COSTO[digital]),
+                 dict(campana=c, canal="llamada", fecha_inicio=ini.date(), fecha_fin=fin.date(),
+                      clientes_programados=int(n_ll * 1.04), costo_unitario=COSTO["llamada"])]
+        # Ventas: digitales tras el click/apertura/envío, por llamada el mismo día, control orgánico en la ventana
+        base_dig = t_clk.where(click, t_ape.where(apertura, t_env))
+        t_dig = base_dig + td(rng.exponential(3.5, m), "D")
+        t_org = ini + u(0, dur + 25)
+        comp_l = (r.compro_llamada == 1).to_numpy()
+        t_v = np.where(comp_l, (t_ll + 0.2 * H).to_numpy(), np.where(trat & envio, t_dig.to_numpy(), t_org.to_numpy()))
+        quien = comp_d | comp_l
+        monto = rng.lognormal(np.log(TICKET.get(c, 200_000)), 0.35, m).round(-3)
+        ven.append(pd.DataFrame({ID: ids[quien], "producto": c, "fecha_venta": pd.to_datetime(t_v[quien]),
+                                 "monto": monto[quien], "canal_venta": np.where(comp_l, "llamada", "digital")[quien]}))
+    gestion = pd.concat(ev, ignore_index=True).sort_values("fecha")
+    gestion["fecha"] = gestion.fecha.dt.floor("min")
+    ventas = pd.concat(ven, ignore_index=True).sort_values("fecha_venta")
+    ventas["fecha_venta"] = ventas.fecha_venta.dt.floor("min")
+    return pd.DataFrame(prog), gestion, ventas
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--clientes", type=int, default=50_000)
@@ -80,8 +147,8 @@ def main():
     a = ap.parse_args()
     rng = np.random.default_rng(a.seed)
     base = Path(a.carpeta)
-    ent, sal, r2 = base / "entradas", base / "salidas", base / "ronda_2"
-    for p in (ent, sal, r2):
+    ent, sal, r2, med = base / "entradas", base / "salidas", base / "ronda_2", base / "medicion"
+    for p in (ent, sal, r2, med):
         p.mkdir(parents=True, exist_ok=True)
 
     d = generar_escenario_completo(a.clientes, a.campanas, seed=a.seed)
@@ -101,6 +168,20 @@ def main():
     print("\n[Ronda 2] Lift medido vs. lift real simulado")
     print(lift[["campana", "n_trat", "n_ctrl", "conv_trat", "conv_ctrl", "lift_rel",
                 "lift_real_simulado", "ic_inf", "ic_sup", "p_valor"]].to_string(index=False))
+
+    # M6 · Medición: insumos con fecha y reporte visual
+    prog, gest, vent = simular_insumos_medicion(out["asignacion"], res2, rng)
+    prog.to_csv(med / "programacion.csv", index=False)
+    gest.to_csv(med / "gestion.csv", index=False)
+    vent.to_csv(med / "ventas.csv", index=False)
+    res = medir(prog, gest, vent, out["asignacion"])
+    for k in ("cumplimiento", "embudo", "atribucion_canal", "serie_diaria", "lift", "roi"):
+        if res[k] is not None:
+            res[k].to_csv(med / f"{k}.csv", index=False)
+    (med / "reporte_medicion.html").write_text(generar_html(res), encoding="utf-8")
+    print(f"\n[M6] Medición: {len(gest):,} eventos, {len(vent):,} ventas -> {med / 'reporte_medicion.html'}")
+    for h in res["hallazgos"]:
+        print("  -", h)
 
 
 if __name__ == "__main__":
